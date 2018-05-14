@@ -321,10 +321,8 @@ namespace AutoMerge
 
                 var sourceBranch = sourceBranchIdentifier.Item;
 
-                var trackMerges = versionControl.TrackMerges(new[] { changesetViewModel.ChangesetId },
-                    new ItemIdentifier(sourceTopFolder),
-                    mergesRelationships.ToArray(),
-                    null);
+                var trackMerges = TrackMergesWithParent(changesetViewModel.ChangesetId,
+                    sourceTopFolder, mergesRelationships, versionControl);
 
                 var changesetVersionSpec = new ChangesetVersionSpec(changesetViewModel.ChangesetId);
 
@@ -389,6 +387,32 @@ namespace AutoMerge
             }
 
             return result;
+        }
+
+        private static ExtendedMerge[] TrackMergesWithParent(int changesetId, string sourceTopFolder, List<ItemIdentifier> mergesRelationships, VersionControlServer versionControl)
+        {
+            ChangesetMerge[] mergedChangesets = versionControl.QueryMerges(
+                null,
+                null,
+                sourceTopFolder,
+                new ChangesetVersionSpec(changesetId),
+                new ChangesetVersionSpec(changesetId),
+                null,
+                RecursionType.Full);
+            List<int> changesetIds = new List<int>();
+            changesetIds.Add(changesetId);
+            string parentFolder = sourceTopFolder;
+            foreach (var changesetMerge in mergedChangesets)
+            {
+                Changeset actualChange = versionControl.GetChangeset(changesetMerge.SourceVersion);
+                changesetIds.Add(changesetMerge.SourceVersion);
+                string topFolder = CalculateTopFolder(actualChange.Changes);
+                parentFolder = changesetIds.Min() == changesetMerge.SourceVersion ? topFolder : parentFolder;
+            }
+            return versionControl.TrackMerges(changesetIds.ToArray(),
+                    new ItemIdentifier(parentFolder),
+                    mergesRelationships.ToArray(),
+                    null);
         }
 
         private static List<ItemIdentifier> GetMergesRelationships(string sourceTopFolder, VersionControlServer versionControl)
@@ -478,7 +502,8 @@ namespace AutoMerge
 
         private static bool IsTargetPath(ItemIdentifier mergeRelations, ItemIdentifier branch)
         {
-            return mergeRelations.Item.Contains(branch.Item);
+            return mergeRelations.Item.StartsWith(branch.Item + "/", StringComparison.OrdinalIgnoreCase)
+                || mergeRelations.Item.Equals(branch.Item, StringComparison.OrdinalIgnoreCase);
         }
 
         private static string CalculateTopFolder(IList<Change> changes)
@@ -529,10 +554,10 @@ namespace AutoMerge
             }
             const string rootFolder = "$/";
             var folder = topFolder;
-            while (folder != rootFolder && !changeFolder.StartsWith(folder, StringComparison.OrdinalIgnoreCase))
+            while (folder != rootFolder && !changeFolder.ToLower().Contains(folder.ToLower()))
             {
                 folder = ExtractParentFolder(folder);
-                if (folder != null && changeFolder.StartsWith(folder, StringComparison.OrdinalIgnoreCase))
+                if (folder != null && changeFolder.ToLower().Contains(folder.ToLower()))
                     break;
             }
 
